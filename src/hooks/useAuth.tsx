@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { onAuthStateChanged, User, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
@@ -20,6 +20,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let unsubProfile: (() => void) | undefined;
+
+    // Handle redirect result
+    getRedirectResult(auth).catch((err) => {
+      console.error('Redirect result error:', err);
+    });
 
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -60,12 +65,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async () => {
     const provider = new GoogleAuthProvider();
     try {
+      // Try popup first
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       console.error('Sign in error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
+      
+      // If popup is blocked or closed rapidly (common in iframes), try redirect
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/internal-error') {
+        console.log('Popup failed, trying redirect...');
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch (redirectErr: any) {
+          console.error('Redirect error:', redirectErr);
+          alert(`Sign in failed: ${redirectErr.message}`);
+        }
         return;
       }
+
       if (err.code === 'auth/unauthorized-domain') {
         alert(`This domain (${window.location.hostname}) is not authorized in your Firebase project. Please add it to "Authorized Domains" in the Firebase Console (Authentication > Settings).`);
       } else {

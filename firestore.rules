@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. User Profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.userId is string &&
+               data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+               data.role in ['patient', 'doctor', 'admin'];
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatar'])
+      );
+    }
+
+    // 2. Doctors
+    match /doctors/{doctorId} {
+      function isValidDoctor(data) {
+        return data.doctorId is string &&
+               data.specialty is string &&
+               data.price is number;
+      }
+
+      allow read: if true; // Publicly visible
+      allow create: if isSignedIn() && isValidDoctor(incoming());
+      allow update: if isOwner(doctorId) && isValidDoctor(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['bio', 'qualifications', 'price', 'availability'])
+      );
+    }
+
+    // 3. Appointments
+    match /appointments/{appointmentId} {
+      function isValidAppointment(data) {
+        return data.patientId is string &&
+               data.doctorId is string &&
+               data.date is string &&
+               data.status in ['pending', 'confirmed', 'cancelled', 'completed'];
+      }
+
+      allow read: if isSignedIn() && (
+        request.auth.uid == resource.data.patientId ||
+        request.auth.uid == resource.data.doctorId
+      );
+
+      allow list: if isSignedIn() && (
+        resource.data.patientId == request.auth.uid ||
+        resource.data.doctorId == request.auth.uid
+      );
+
+      allow create: if isSignedIn() &&
+                    request.auth.uid == incoming().patientId &&
+                    isValidAppointment(incoming());
+
+      allow update: if isSignedIn() && (request.auth.uid == existing().patientId || request.auth.uid == existing().doctorId) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'meetLink']) &&
+                    (!incoming().diff(existing()).affectedKeys().hasAny(['meetLink']) || existing().status == 'confirmed');
+    }
+
+    // 4. Chats
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.auth.uid in incoming().participants;
+      allow update: if isSignedIn() && request.auth.uid in existing().participants && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage', 'lastUpdatedAt'])
+      );
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isSignedIn() && request.auth.uid == incoming().senderId &&
+                      request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "HealthPulse",
+  "description": "A comprehensive online doctor appointment booking platform with real-time chat, video consultations, and secure billing.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

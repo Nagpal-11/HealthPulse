@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
@@ -21,9 +21,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let unsubProfile: (() => void) | undefined;
 
-    // Handle redirect result
-    getRedirectResult(auth).catch((err) => {
-      console.error('Redirect result error:', err);
+    // Ensure persistence is set
+    setPersistence(auth, browserLocalPersistence).catch(err => {
+      console.error('Persistence error:', err);
     });
 
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('Attempting sign in on domain:', currentDomain);
 
     try {
-      // Try popup first
+      // Force popup for better compatibility with iframe-based previews if sanitized
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       console.error('Sign in error details:', {
@@ -78,25 +78,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         domain: currentDomain
       });
       
-      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/internal-error' || err.code === 'auth/network-request-failed') {
-        console.log('Popup failed or closed, trying redirect as fallback...');
-        try {
-          // Before redirecting, alert the user about the domain requirement if it's likely an authorization issue
-          if (err.code === 'auth/internal-error' && !currentDomain.includes('firebaseapp.com')) {
-             alert(`Sign-in issue detected.\n\nPlease ensure "${currentDomain}" is added to "Authorized Domains" in Firebase Console > Authentication > Settings.\n\nTrying an alternative method now...`);
-          }
-          await signInWithRedirect(auth, provider);
-        } catch (redirectErr: any) {
-          console.error('Redirect error:', redirectErr);
-          alert(`Sign in failed: ${redirectErr.message}\nDomain: ${currentDomain}`);
-        }
+      // If popup is blocked
+      if (err.code === 'auth/popup-blocked') {
+        alert('SIGN IN BLOCKED: Your browser blocked the sign-in popup. Please click "Allow popups" in the address bar and try again.');
+        return;
+      }
+
+      // If network fails (common in restricted iframes)
+      if (err.code === 'auth/network-request-failed') {
+        alert('CONNECTION ERROR: Firebase cannot connect. This often happens in private window or when third-party cookies are blocked.\n\nPRO TIP: Try opening the app in a "New Tab" (button in the top right) to fix this!');
         return;
       }
 
       if (err.code === 'auth/unauthorized-domain') {
         alert(`ACCESS DENIED: The domain "${currentDomain}" is not authorized in your Firebase project.\n\nPlease go to Firebase Console > Authentication > Settings > Authorized Domains and add: ${currentDomain}`);
-      } else {
-        alert(`Sign in error (${err.code}): ${err.message}`);
+      } else if (err.code !== 'auth/popup-closed-by-user') {
+        alert(`Sign in error (${err.code}): ${err.message}\n\nIf this persists, try opening the app in a new tab.`);
       }
     }
   };

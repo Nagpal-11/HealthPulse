@@ -64,28 +64,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async () => {
     const provider = new GoogleAuthProvider();
+    const currentDomain = window.location.hostname;
+    
+    console.log('Attempting sign in on domain:', currentDomain);
+
     try {
       // Try popup first
       await signInWithPopup(auth, provider);
     } catch (err: any) {
-      console.error('Sign in error:', err);
+      console.error('Sign in error details:', {
+        code: err.code,
+        message: err.message,
+        domain: currentDomain
+      });
       
-      // If popup is blocked or closed rapidly (common in iframes), try redirect
-      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/internal-error') {
-        console.log('Popup failed, trying redirect...');
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/internal-error' || err.code === 'auth/network-request-failed') {
+        console.log('Popup failed or closed, trying redirect as fallback...');
         try {
+          // Before redirecting, alert the user about the domain requirement if it's likely an authorization issue
+          if (err.code === 'auth/internal-error' && !currentDomain.includes('firebaseapp.com')) {
+             alert(`Sign-in issue detected.\n\nPlease ensure "${currentDomain}" is added to "Authorized Domains" in Firebase Console > Authentication > Settings.\n\nTrying an alternative method now...`);
+          }
           await signInWithRedirect(auth, provider);
         } catch (redirectErr: any) {
           console.error('Redirect error:', redirectErr);
-          alert(`Sign in failed: ${redirectErr.message}`);
+          alert(`Sign in failed: ${redirectErr.message}\nDomain: ${currentDomain}`);
         }
         return;
       }
 
       if (err.code === 'auth/unauthorized-domain') {
-        alert(`This domain (${window.location.hostname}) is not authorized in your Firebase project. Please add it to "Authorized Domains" in the Firebase Console (Authentication > Settings).`);
+        alert(`ACCESS DENIED: The domain "${currentDomain}" is not authorized in your Firebase project.\n\nPlease go to Firebase Console > Authentication > Settings > Authorized Domains and add: ${currentDomain}`);
       } else {
-        alert(`Sign in error: ${err.message}`);
+        alert(`Sign in error (${err.code}): ${err.message}`);
       }
     }
   };

@@ -91,7 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (err.code === 'auth/unauthorized-domain') {
-        alert(`ACCESS DENIED: The domain "${currentDomain}" is not authorized in your Firebase project.\n\nPlease go to Firebase Console > Authentication > Settings > Authorized Domains and add: ${currentDomain}`);
+        const projectId = auth.app.options.projectId;
+        alert(`ACCESS DENIED: The domain "${currentDomain}" is not authorized in your Firebase project (${projectId}).\n\nPlease go to Firebase Console > Authentication > Settings > Authorized Domains and add: ${currentDomain}`);
       } else if (err.code !== 'auth/popup-closed-by-user') {
         alert(`Sign in error (${err.code}): ${err.message}\n\nIf this persists, try opening the app in a new tab.`);
       }
